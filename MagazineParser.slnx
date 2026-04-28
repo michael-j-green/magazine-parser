@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="magparse/magparse.csproj" />
+  <Project Path="magparse.Tests/magparse.Tests.csproj" />
+</Solution>

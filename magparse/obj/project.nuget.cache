@@ -1,0 +1,13 @@
+{
+  "version": 2,
+  "dgSpecHash": "GQJizDha5Mo=",
+  "success": true,
+  "projectFilePath": "/Users/michaelgreen/Development/MagazineParser/magparse/magparse.csproj",
+  "expectedPackageFiles": [
+    "/Users/michaelgreen/.nuget/packages/docnet.core/2.6.0/docnet.core.2.6.0.nupkg.sha512",
+    "/Users/michaelgreen/.nuget/packages/microsoft.extensions.ai.abstractions/10.4.1/microsoft.extensions.ai.abstractions.10.4.1.nupkg.sha512",
+    "/Users/michaelgreen/.nuget/packages/ollamasharp/5.4.25/ollamasharp.5.4.25.nupkg.sha512",
+    "/Users/michaelgreen/.nuget/packages/sixlabors.imagesharp/3.1.12/sixlabors.imagesharp.3.1.12.nupkg.sha512"
+  ],
+  "logs": []
+}
