@@ -63,7 +63,8 @@ internal static class CliArgumentParser
             RawOutput = state.RawOutput,
             OllamaEndpoint = state.OllamaEndpoint,
             OllamaModel = state.OllamaModel,
-            RenderScale = state.RenderScale
+            RenderScale = state.RenderScale,
+            OllamaTimeout = state.OllamaTimeout
         };
         errorMessage = null;
         return true;
@@ -97,7 +98,7 @@ internal static class CliArgumentParser
 
     private static bool TryRequiresValue(string argument)
     {
-        return argument is "-o" or "--output" or "--max-pages" or "--ollama-endpoint" or "--ollama-model" or "--render-scale";
+        return argument is "-o" or "--output" or "--max-pages" or "--ollama-endpoint" or "--ollama-model" or "--render-scale" or "--ollama-timeout";
     }
 
     private static bool TryHandleValueOption(string[] args, string argument, CliParseState state, ref int index, out string? errorMessage)
@@ -141,6 +142,18 @@ internal static class CliArgumentParser
                 return false;
             }
             state.RenderScale = parsedScale;
+            index += 2;
+            return true;
+        }
+
+        if (argument is "--ollama-timeout")
+        {
+            if (!int.TryParse(value, out var parsedTimeout) || parsedTimeout <= 0)
+            {
+                errorMessage = "The --ollama-timeout option requires a positive integer (seconds).";
+                return false;
+            }
+            state.OllamaTimeout = parsedTimeout;
             index += 2;
             return true;
         }
@@ -195,6 +208,8 @@ internal sealed class CliOptions
     public string? OllamaModel { get; init; }
 
     public double? RenderScale { get; init; }
+
+    public int? OllamaTimeout { get; init; }
 }
 
 internal static class OutputPathResolver
@@ -255,4 +270,6 @@ internal sealed class CliParseState
     public int? MaxPages { get; set; }
 
     public bool SummaryOnly { get; set; }
+
+    public int? OllamaTimeout { get; set; }
 }

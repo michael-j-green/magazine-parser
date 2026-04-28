@@ -49,7 +49,7 @@ internal static class Program
         try
         {
             var outputPath = OutputPathResolver.Resolve(options.OutputPath, pdfPath, Environment.CurrentDirectory);
-            var settings = MagparseSettings.FromEnvironment(options.OllamaEndpoint, options.OllamaModel, options.RenderScale);
+            var settings = MagparseSettings.FromEnvironment(options.OllamaEndpoint, options.OllamaModel, options.RenderScale, options.OllamaTimeout);
             var progressReporter = new ConsoleProgressReporter(options.EmitStructuredProgress);
 
             await progressReporter.ReportAsync(
@@ -100,7 +100,7 @@ internal static class Program
 
     private static async Task PrintUsageAsync()
     {
-        await Console.Error.WriteLineAsync("Usage: magparse <path-to-magazine.pdf> [--output <path>] [--progress] [--max-pages <number>] [--summary-only] [--raw-output] [--ollama-endpoint <uri>] [--ollama-model <model>] [--render-scale <number>]");
+        await Console.Error.WriteLineAsync("Usage: magparse <path-to-magazine.pdf> [--output <path>] [--progress] [--max-pages <number>] [--summary-only] [--raw-output] [--ollama-endpoint <uri>] [--ollama-model <model>] [--render-scale <number>] [--ollama-timeout <seconds>]");
         await Console.Error.WriteLineAsync();
         await Console.Error.WriteLineAsync("Options:");
         await Console.Error.WriteLineAsync("  -o, --output <path>        Write JSON to a file or directory.");
@@ -112,11 +112,13 @@ internal static class Program
         await Console.Error.WriteLineAsync("  --ollama-endpoint <uri>    Override Ollama endpoint (e.g., http://127.0.0.1:11434).");
         await Console.Error.WriteLineAsync("  --ollama-model <model>     Override Ollama model (e.g., gemma3:12b).");
         await Console.Error.WriteLineAsync("  --render-scale <number>    Override PDF render scale (e.g., 2.5 for ~180 DPI).");
+        await Console.Error.WriteLineAsync("  --ollama-timeout <seconds> Override HTTP timeout for Ollama requests (default 900).");
         await Console.Error.WriteLineAsync("  -h, --help                 Show this help text.");
         await Console.Error.WriteLineAsync();
         await Console.Error.WriteLineAsync("Optional environment variables (overridden by CLI options):");
         await Console.Error.WriteLineAsync("  MAGPARSE_OLLAMA_ENDPOINT   Defaults to http://127.0.0.1:11434");
         await Console.Error.WriteLineAsync("  MAGPARSE_OLLAMA_MODEL      Defaults to gemma3:12b");
         await Console.Error.WriteLineAsync("  MAGPARSE_RENDER_SCALE      Defaults to 2.5 (roughly 180 DPI)");
+        await Console.Error.WriteLineAsync("  MAGPARSE_OLLAMA_TIMEOUT    Defaults to 900 (seconds, ~15 minutes)");
     }
 }
