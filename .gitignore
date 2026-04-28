@@ -1,0 +1,42 @@
+.DS_Store
+Thumbs.db
+
+# Build outputs
+bin/
+obj/
+TestResults/
+
+# .NET user and local files
+*.user
+*.rsuser
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Visual Studio / VS Code / Rider
+.vs/
+.vscode/
+.idea/
+*.sln.iml
+
+# NuGet
+packages/
+*.nupkg
+*.snupkg
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+# Coverage and diagnostics
+coverage/
+coverage.*
+*.coverage
+*.coveragexml
+*.trx
+
+# Logs
+*.log
+
+# Generated tool caches
+_ReSharper*/
+*.DotSettings.user
