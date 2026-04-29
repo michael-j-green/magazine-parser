@@ -12,6 +12,10 @@ public sealed class MagazineDocument
 
     public MagazineType Type { get; init; }
 
+    public string? CountryOfOrigin { get; init; }
+
+    public string? OriginalPrice { get; init; }
+
     public int PageCount { get; init; }
 
     public required IReadOnlyList<ArticleDocument> Articles { get; init; }
@@ -40,6 +44,10 @@ public sealed class ArticleDocument
     public decimal? SentimentScore { get; init; }
 
     public required IReadOnlyList<ArticleRating> Ratings { get; init; }
+
+    public string? ReviewedItemReleaseDate { get; init; }
+
+    public string? ReviewedItemPrice { get; init; }
 
     public required string Text { get; init; }
 }

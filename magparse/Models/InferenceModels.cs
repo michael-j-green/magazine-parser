@@ -28,6 +28,10 @@ public sealed class MagazineMetadataCandidate
     public string? Publisher { get; init; }
 
     public MagazineType Type { get; init; }
+
+    public string? CountryOfOrigin { get; init; }
+
+    public string? OriginalPrice { get; init; }
 }
 
 public sealed class ArticleAnalysisCandidate
@@ -49,6 +53,10 @@ public sealed class ArticleAnalysisCandidate
     public decimal? SentimentScore { get; init; }
 
     public IReadOnlyList<ArticleRating> Ratings { get; init; } = [];
+
+    public string? ReviewedItemReleaseDate { get; init; }
+
+    public string? ReviewedItemPrice { get; init; }
 }
 
 public sealed class ArticleGroupingCandidate

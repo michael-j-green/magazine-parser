@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text;
+using System.Collections.Concurrent;
 using OllamaSharp;
 using OllamaSharp.Models;
 
@@ -14,12 +15,13 @@ public sealed class OllamaInferenceClient
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true,
-        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) }
+        NumberHandling = JsonNumberHandling.AllowReadingFromString,
+        Converters = { new LenientEnumJsonConverterFactory(), new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) }
     };
 
     private readonly OllamaApiClient _client;
     private readonly MagparseSettings _settings;
-    private bool _modelValidated;
+    private readonly HashSet<string> _validatedModels = new(StringComparer.OrdinalIgnoreCase);
 
     public OllamaInferenceClient(MagparseSettings settings)
     {
@@ -33,9 +35,9 @@ public sealed class OllamaInferenceClient
         _client.SelectedModel = settings.OllamaModel;
     }
 
-    public async Task<T> GenerateJsonAsync<T>(string systemPrompt, string prompt, IReadOnlyList<byte[]>? images, CancellationToken cancellationToken)
+    public async Task<T> GenerateJsonAsync<T>(string systemPrompt, string prompt, IReadOnlyList<byte[]>? images, string model, CancellationToken cancellationToken)
     {
-        await EnsureModelAvailableAsync(cancellationToken);
+        await EnsureModelAvailableAsync(model, cancellationToken);
 
         JsonException? lastJsonException = null;
 
@@ -47,7 +49,7 @@ public sealed class OllamaInferenceClient
 
             var request = new GenerateRequest
             {
-                Model = _settings.OllamaModel,
+                Model = model,
                 System = systemPrompt,
                 Prompt = effectivePrompt,
                 Images = images?.Select(Convert.ToBase64String).ToArray(),
@@ -71,11 +73,69 @@ public sealed class OllamaInferenceClient
             }
             catch (JsonException exception) when (attempt < MaxGenerateAttempts)
             {
+                var repairedPayload = await TryRepairJsonPayloadAsync(payload, model, cancellationToken);
+                if (TryDeserialize(repairedPayload, out T? repairedResult))
+                {
+                    return repairedResult!;
+                }
+
                 lastJsonException = exception;
             }
         }
 
         throw new InvalidOperationException($"Ollama returned invalid JSON after {MaxGenerateAttempts} attempts. {lastJsonException?.Message}");
+    }
+
+    public async Task<string> GenerateResponseAsync(string systemPrompt, string prompt, IReadOnlyList<byte[]>? images, string model, CancellationToken cancellationToken)
+    {
+        await EnsureModelAvailableAsync(model, cancellationToken);
+
+        var request = new GenerateRequest
+        {
+            Model = model,
+            System = systemPrompt,
+            Prompt = prompt,
+            Images = images?.Select(Convert.ToBase64String).ToArray(),
+            Stream = false
+        };
+
+        return (await ReadResponsePayloadAsync(request, cancellationToken)).Trim();
+    }
+
+    private async Task<string?> TryRepairJsonPayloadAsync(string payload, string model, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(payload))
+        {
+            return null;
+        }
+
+        var repaired = await GenerateResponseAsync(
+            "You repair malformed JSON. Return only valid JSON. Do not add commentary.",
+            $"The following JSON is malformed or truncated. Repair it so it becomes exactly one valid JSON value. Preserve all existing values when possible. If a closing brace, bracket, null, false, or empty array is required to complete the structure, add the smallest valid fix only.\n\n<<<JSON>>>\n{payload}\n<<<END_JSON>>>",
+            null,
+            model,
+            cancellationToken);
+
+        return CleanJsonPayload(repaired);
+    }
+
+    private static bool TryDeserialize<T>(string? payload, out T? result)
+    {
+        result = default;
+        if (string.IsNullOrWhiteSpace(payload))
+        {
+            return false;
+        }
+
+        try
+        {
+            result = JsonSerializer.Deserialize<T>(payload, JsonOptions);
+            return result is not null;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
     }
 
     private async Task<string> ReadResponsePayloadAsync(GenerateRequest request, CancellationToken cancellationToken)
@@ -142,23 +202,23 @@ public sealed class OllamaInferenceClient
         throw new InvalidOperationException("Ollama returned no response content.");
     }
 
-    private async Task EnsureModelAvailableAsync(CancellationToken cancellationToken)
+    private async Task EnsureModelAvailableAsync(string model, CancellationToken cancellationToken)
     {
-        if (_modelValidated)
+        if (_validatedModels.Contains(model))
         {
             return;
         }
 
         var localModels = await _client.ListLocalModelsAsync(cancellationToken);
-        var exists = localModels.Any(model =>
-            string.Equals(model.Name, _settings.OllamaModel, StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(model.ModelName, _settings.OllamaModel, StringComparison.OrdinalIgnoreCase));
+        var exists = localModels.Any(localModel =>
+            string.Equals(localModel.Name, model, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(localModel.ModelName, model, StringComparison.OrdinalIgnoreCase));
 
         if (!exists)
         {
             await foreach (var _ in _client.PullModelAsync(new PullModelRequest
             {
-                Model = _settings.OllamaModel,
+                Model = model,
                 Stream = true
             }, cancellationToken))
             {
@@ -166,7 +226,7 @@ public sealed class OllamaInferenceClient
             }
         }
 
-        _modelValidated = true;
+        _validatedModels.Add(model);
     }
 
     private static string CleanJsonPayload(string payload)
@@ -207,5 +267,81 @@ public sealed class OllamaInferenceClient
         var end = payload.LastIndexOf(closingChar);
 
         return end > start ? payload[start..(end + 1)] : null;
+    }
+
+    private sealed class LenientEnumJsonConverterFactory : JsonConverterFactory
+    {
+        public override bool CanConvert(Type typeToConvert)
+        {
+            return typeToConvert.IsEnum;
+        }
+
+        public override JsonConverter CreateConverter(Type typeToConvert, JsonSerializerOptions options)
+        {
+            var converterType = typeof(LenientEnumJsonConverter<>).MakeGenericType(typeToConvert);
+            return (JsonConverter)Activator.CreateInstance(converterType)!;
+        }
+    }
+
+    private sealed class LenientEnumJsonConverter<TEnum> : JsonConverter<TEnum> where TEnum : struct, Enum
+    {
+        private static readonly ConcurrentDictionary<string, TEnum> NormalizedMap = BuildNormalizedMap();
+
+        public override TEnum Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            if (reader.TokenType is JsonTokenType.String)
+            {
+                var raw = reader.GetString();
+                if (!string.IsNullOrWhiteSpace(raw))
+                {
+                    if (Enum.TryParse<TEnum>(raw, ignoreCase: true, out var exactParsed))
+                    {
+                        return exactParsed;
+                    }
+
+                    var normalized = Normalize(raw);
+                    if (NormalizedMap.TryGetValue(normalized, out var mapped))
+                    {
+                        return mapped;
+                    }
+                }
+
+                return default;
+            }
+
+            if (reader.TokenType is JsonTokenType.Number && reader.TryGetInt32(out var intValue))
+            {
+                var numeric = (TEnum)Enum.ToObject(typeof(TEnum), intValue);
+                return Enum.IsDefined(typeof(TEnum), numeric) ? numeric : default;
+            }
+
+            return default;
+        }
+
+        public override void Write(Utf8JsonWriter writer, TEnum value, JsonSerializerOptions options)
+        {
+            writer.WriteStringValue(value.ToString());
+        }
+
+        private static ConcurrentDictionary<string, TEnum> BuildNormalizedMap()
+        {
+            var values = Enum.GetValues<TEnum>();
+            var map = new ConcurrentDictionary<string, TEnum>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var value in values)
+            {
+                var name = value.ToString();
+                map.TryAdd(name, value);
+                map.TryAdd(Normalize(name), value);
+            }
+
+            return map;
+        }
+
+        private static string Normalize(string value)
+        {
+            var chars = value.Where(char.IsLetterOrDigit).ToArray();
+            return new string(chars);
+        }
     }
 }

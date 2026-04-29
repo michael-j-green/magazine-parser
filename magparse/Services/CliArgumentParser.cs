@@ -63,8 +63,15 @@ internal static class CliArgumentParser
             RawOutput = state.RawOutput,
             OllamaEndpoint = state.OllamaEndpoint,
             OllamaModel = state.OllamaModel,
+            OllamaPageAnalysisModel = state.OllamaPageAnalysisModel,
+            OllamaMetadataModel = state.OllamaMetadataModel,
+            OllamaGroupingModel = state.OllamaGroupingModel,
+            OllamaArticleAnalysisModel = state.OllamaArticleAnalysisModel,
             RenderScale = state.RenderScale,
-            OllamaTimeout = state.OllamaTimeout
+            OllamaTimeout = state.OllamaTimeout,
+            TessDataPath = state.TessDataPath,
+            TesseractLanguage = state.TesseractLanguage,
+            Profile = state.Profile
         };
         errorMessage = null;
         return true;
@@ -98,7 +105,7 @@ internal static class CliArgumentParser
 
     private static bool TryRequiresValue(string argument)
     {
-        return argument is "-o" or "--output" or "--max-pages" or "--ollama-endpoint" or "--ollama-model" or "--render-scale" or "--ollama-timeout";
+        return argument is "-o" or "--output" or "--max-pages" or "--ollama-endpoint" or "--ollama-model" or "--ollama-page-analysis-model" or "--ollama-metadata-model" or "--ollama-grouping-model" or "--ollama-article-analysis-model" or "--render-scale" or "--ollama-timeout" or "--tessdata-path" or "--tesseract-language" or "--profile";
     }
 
     private static bool TryHandleValueOption(string[] args, string argument, CliParseState state, ref int index, out string? errorMessage)
@@ -108,54 +115,160 @@ internal static class CliArgumentParser
             return false;
         }
 
-        if (argument is "-o" or "--output")
+        if (TryHandleStringOption(argument, value, state))
         {
-            state.OutputPath = value;
             index += 2;
+            errorMessage = null;
             return true;
+        }
+
+        if (argument is "--profile")
+        {
+            return CompleteValidatedOption(TryHandleProfileOption(value, state, out errorMessage), ref index, out errorMessage, errorMessage);
         }
 
         if (argument is "--ollama-endpoint")
         {
-            if (!Uri.TryCreate(value, UriKind.Absolute, out var uri))
-            {
-                errorMessage = "The --ollama-endpoint option requires a valid URI.";
-                return false;
-            }
-            state.OllamaEndpoint = value;
-            index += 2;
-            return true;
-        }
-
-        if (argument is "--ollama-model")
-        {
-            state.OllamaModel = value;
-            index += 2;
-            return true;
+            return CompleteValidatedOption(TryHandleEndpointOption(argument, value, state, out errorMessage), ref index, out errorMessage, errorMessage);
         }
 
         if (argument is "--render-scale")
         {
-            if (!double.TryParse(value, out var parsedScale) || parsedScale <= 0)
-            {
-                errorMessage = "The --render-scale option requires a positive number.";
-                return false;
-            }
-            state.RenderScale = parsedScale;
-            index += 2;
-            return true;
+            return CompleteValidatedOption(TryHandleRenderScaleOption(argument, value, state, out errorMessage), ref index, out errorMessage, errorMessage);
         }
 
         if (argument is "--ollama-timeout")
         {
-            if (!int.TryParse(value, out var parsedTimeout) || parsedTimeout <= 0)
-            {
-                errorMessage = "The --ollama-timeout option requires a positive integer (seconds).";
+            return CompleteValidatedOption(TryHandleTimeoutOption(argument, value, state, out errorMessage), ref index, out errorMessage, errorMessage);
+        }
+
+        return CompleteValidatedOption(TryHandleMaxPagesOption(argument, value, state, out errorMessage), ref index, out errorMessage, errorMessage);
+    }
+
+    private static bool CompleteValidatedOption(bool success, ref int index, out string? errorMessage, string? validationError)
+    {
+        errorMessage = validationError;
+        if (!success)
+        {
+            return false;
+        }
+
+        index += 2;
+        errorMessage = null;
+        return true;
+    }
+
+    private static bool TryHandleStringOption(string argument, string value, CliParseState state)
+    {
+        switch (argument)
+        {
+            case "-o":
+            case "--output":
+                state.OutputPath = value;
+                return true;
+            case "--ollama-model":
+                state.OllamaModel = value;
+                return true;
+            case "--ollama-page-analysis-model":
+                state.OllamaPageAnalysisModel = value;
+                return true;
+            case "--ollama-metadata-model":
+                state.OllamaMetadataModel = value;
+                return true;
+            case "--ollama-grouping-model":
+                state.OllamaGroupingModel = value;
+                return true;
+            case "--ollama-article-analysis-model":
+                state.OllamaArticleAnalysisModel = value;
+                return true;
+            case "--tessdata-path":
+                state.TessDataPath = value;
+                return true;
+            case "--tesseract-language":
+                state.TesseractLanguage = value;
+                return true;
+            default:
                 return false;
-            }
-            state.OllamaTimeout = parsedTimeout;
-            index += 2;
-            return true;
+        }
+    }
+
+    private static bool TryHandleProfileOption(string value, CliParseState state, out string? errorMessage)
+    {
+        var normalized = MagparseSettings.NormalizeProfileName(value);
+        if (normalized is null)
+        {
+            errorMessage = "The --profile option must be one of: faster, balanced, quality, highquality, or high-quality.";
+            return false;
+        }
+
+        state.Profile = normalized;
+        errorMessage = null;
+        return true;
+    }
+
+    private static bool TryHandleEndpointOption(string argument, string value, CliParseState state, out string? errorMessage)
+    {
+        if (argument is not "--ollama-endpoint")
+        {
+            errorMessage = null;
+            return false;
+        }
+
+        if (!Uri.TryCreate(value, UriKind.Absolute, out _))
+        {
+            errorMessage = "The --ollama-endpoint option requires a valid URI.";
+            return false;
+        }
+
+        state.OllamaEndpoint = value;
+        errorMessage = null;
+        return true;
+    }
+
+    private static bool TryHandleRenderScaleOption(string argument, string value, CliParseState state, out string? errorMessage)
+    {
+        if (argument is not "--render-scale")
+        {
+            errorMessage = null;
+            return false;
+        }
+
+        if (!double.TryParse(value, out var parsedScale) || parsedScale <= 0)
+        {
+            errorMessage = "The --render-scale option requires a positive number.";
+            return false;
+        }
+
+        state.RenderScale = parsedScale;
+        errorMessage = null;
+        return true;
+    }
+
+    private static bool TryHandleTimeoutOption(string argument, string value, CliParseState state, out string? errorMessage)
+    {
+        if (argument is not "--ollama-timeout")
+        {
+            errorMessage = null;
+            return false;
+        }
+
+        if (!int.TryParse(value, out var parsedTimeout) || parsedTimeout <= 0)
+        {
+            errorMessage = "The --ollama-timeout option requires a positive integer (seconds).";
+            return false;
+        }
+
+        state.OllamaTimeout = parsedTimeout;
+        errorMessage = null;
+        return true;
+    }
+
+    private static bool TryHandleMaxPagesOption(string argument, string value, CliParseState state, out string? errorMessage)
+    {
+        if (argument is not "--max-pages")
+        {
+            errorMessage = $"Unknown option: {argument}";
+            return false;
         }
 
         if (!int.TryParse(value, out var parsedMaxPages) || parsedMaxPages <= 0)
@@ -165,7 +278,6 @@ internal static class CliArgumentParser
         }
 
         state.MaxPages = parsedMaxPages;
-        index += 2;
         errorMessage = null;
         return true;
     }
@@ -207,9 +319,23 @@ internal sealed class CliOptions
 
     public string? OllamaModel { get; init; }
 
+    public string? OllamaPageAnalysisModel { get; init; }
+
+    public string? OllamaMetadataModel { get; init; }
+
+    public string? OllamaGroupingModel { get; init; }
+
+    public string? OllamaArticleAnalysisModel { get; init; }
+
     public double? RenderScale { get; init; }
 
     public int? OllamaTimeout { get; init; }
+
+    public string? TessDataPath { get; init; }
+
+    public string? TesseractLanguage { get; init; }
+
+    public string? Profile { get; init; }
 }
 
 internal static class OutputPathResolver
@@ -263,6 +389,14 @@ internal sealed class CliParseState
 
     public string? OllamaModel { get; set; }
 
+    public string? OllamaPageAnalysisModel { get; set; }
+
+    public string? OllamaMetadataModel { get; set; }
+
+    public string? OllamaGroupingModel { get; set; }
+
+    public string? OllamaArticleAnalysisModel { get; set; }
+
     public double? RenderScale { get; set; }
 
     public bool ShowHelp { get; set; }
@@ -272,4 +406,10 @@ internal sealed class CliParseState
     public bool SummaryOnly { get; set; }
 
     public int? OllamaTimeout { get; set; }
+
+    public string? TessDataPath { get; set; }
+
+    public string? TesseractLanguage { get; set; }
+
+    public string? Profile { get; set; }
 }
