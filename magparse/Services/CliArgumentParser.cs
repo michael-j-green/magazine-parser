@@ -60,7 +60,6 @@ internal static class CliArgumentParser
             ShowHelp = state.ShowHelp,
             MaxPages = state.MaxPages,
             SummaryOnly = state.SummaryOnly,
-            RawOutput = state.RawOutput,
             OllamaEndpoint = state.OllamaEndpoint,
             OllamaModel = state.OllamaModel,
             OllamaPageAnalysisModel = state.OllamaPageAnalysisModel,
@@ -92,10 +91,6 @@ internal static class CliArgumentParser
                 return true;
             case "--summary-only":
                 state.SummaryOnly = true;
-                index++;
-                return true;
-            case "--raw-output":
-                state.RawOutput = true;
                 index++;
                 return true;
             default:
@@ -313,8 +308,6 @@ internal sealed class CliOptions
 
     public bool SummaryOnly { get; init; }
 
-    public bool RawOutput { get; init; }
-
     public string? OllamaEndpoint { get; init; }
 
     public string? OllamaModel { get; init; }
@@ -340,27 +333,16 @@ internal sealed class CliOptions
 
 internal static class OutputPathResolver
 {
+    // Always resolves to an output directory.
+    // If no path is requested, defaults to a subdirectory named after the PDF in the current directory.
     public static string Resolve(string? requestedPath, string pdfPath, string currentDirectory)
     {
-        var defaultFileName = Path.GetFileNameWithoutExtension(pdfPath) + ".json";
-
         if (string.IsNullOrWhiteSpace(requestedPath))
         {
-            return Path.Combine(currentDirectory, defaultFileName);
+            return Path.Combine(currentDirectory, Path.GetFileNameWithoutExtension(pdfPath));
         }
 
-        var fullPath = Path.GetFullPath(requestedPath);
-        if (Directory.Exists(fullPath) || EndsWithDirectorySeparator(requestedPath))
-        {
-            return Path.Combine(fullPath, defaultFileName);
-        }
-
-        return fullPath;
-    }
-
-    private static bool EndsWithDirectorySeparator(string path)
-    {
-        return path.EndsWith(Path.DirectorySeparatorChar) || path.EndsWith(Path.AltDirectorySeparatorChar);
+        return Path.GetFullPath(requestedPath);
     }
 }
 
@@ -372,7 +354,7 @@ public sealed class ParseRequest
 
     public bool SummaryOnly { get; init; }
 
-    public string? RawOutputDirectory { get; init; }
+    public string? OutputDirectory { get; init; }
 }
 
 internal sealed class CliParseState
@@ -382,8 +364,6 @@ internal sealed class CliParseState
     public string? OutputPath { get; set; }
 
     public bool EmitStructuredProgress { get; set; }
-
-    public bool RawOutput { get; set; }
 
     public string? OllamaEndpoint { get; set; }
 

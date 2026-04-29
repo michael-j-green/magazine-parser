@@ -50,7 +50,7 @@ internal static class Program
 
         try
         {
-            var outputPath = OutputPathResolver.Resolve(options.OutputPath, pdfPath, Environment.CurrentDirectory);
+            var outputDirectory = OutputPathResolver.Resolve(options.OutputPath, pdfPath, Environment.CurrentDirectory);
             var settings = MagparseSettings.FromEnvironment(options);
             var progressReporter = new ConsoleProgressReporter(options.EmitStructuredProgress);
 
@@ -63,31 +63,27 @@ internal static class Program
             var ocr = new TesseractOcrClient(settings);
             var parser = new MagazineParserPipeline(settings, renderer, ollama, ocr, progressReporter);
 
-            var outputDirectory = Path.GetDirectoryName(OutputPathResolver.Resolve(options.OutputPath, pdfPath, Environment.CurrentDirectory));
-
             var magazine = await parser.ParseAsync(new ParseRequest
             {
                 PdfPath = pdfPath,
                 MaxPages = options.MaxPages,
                 SummaryOnly = options.SummaryOnly,
-                RawOutputDirectory = options.RawOutput ? outputDirectory : null
+                OutputDirectory = outputDirectory
             }, CancellationToken.None);
+
+            Directory.CreateDirectory(outputDirectory);
+            var jsonPath = Path.Combine(outputDirectory, Path.GetFileNameWithoutExtension(pdfPath) + ".json");
             var json = JsonSerializer.Serialize(magazine, OutputJsonOptions);
 
             await progressReporter.ReportAsync(
                 "write-output",
-                $"Writing JSON output to {outputPath}");
+                $"Writing JSON output to {jsonPath}");
 
-            if (!string.IsNullOrWhiteSpace(outputDirectory))
-            {
-                Directory.CreateDirectory(outputDirectory);
-            }
-
-            await File.WriteAllTextAsync(outputPath, json);
+            await File.WriteAllTextAsync(jsonPath, json);
 
             await progressReporter.ReportAsync(
                 "complete",
-                $"Finished parsing {magazine.PageCount} page(s) into {magazine.Articles.Count} article(s). Output written to {outputPath}",
+                $"Finished parsing {magazine.PageCount} page(s) into {magazine.Articles.Count} article(s). Output written to {outputDirectory}",
                 current: 1,
                 total: 1,
                 percent: 1);
@@ -103,15 +99,14 @@ internal static class Program
 
     private static async Task PrintUsageAsync()
     {
-        await Console.Error.WriteLineAsync("Usage: magparse <path-to-magazine.pdf> [--output <path>] [--progress] [--max-pages <number>] [--summary-only] [--raw-output] [--profile <faster|balanced|quality>] [--ollama-endpoint <uri>] [--ollama-model <model>] [--ollama-page-analysis-model <model>] [--ollama-metadata-model <model>] [--ollama-grouping-model <model>] [--ollama-article-analysis-model <model>] [--render-scale <number>] [--ollama-timeout <seconds>] [--tessdata-path <path>] [--tesseract-language <id>]");
+        await Console.Error.WriteLineAsync("Usage: magparse <path-to-magazine.pdf> [--output <directory>] [--progress] [--max-pages <number>] [--summary-only] [--profile <faster|balanced|quality>] [--ollama-endpoint <uri>] [--ollama-model <model>] [--ollama-page-analysis-model <model>] [--ollama-metadata-model <model>] [--ollama-grouping-model <model>] [--ollama-article-analysis-model <model>] [--render-scale <number>] [--ollama-timeout <seconds>] [--tessdata-path <path>] [--tesseract-language <id>]");
         await Console.Error.WriteLineAsync();
         await Console.Error.WriteLineAsync("Options:");
-        await Console.Error.WriteLineAsync("  -o, --output <path>        Write JSON to a file or directory.");
-        await Console.Error.WriteLineAsync("                              Defaults to ./<input-file-name>.json");
+        await Console.Error.WriteLineAsync("  -o, --output <directory>   Output directory for all artefacts (JSON, OCR text, page images).");
+        await Console.Error.WriteLineAsync("                              Defaults to ./<input-file-name>/ in the current directory.");
         await Console.Error.WriteLineAsync("  --progress                 Emit machine-readable JSON progress lines to stdout.");
         await Console.Error.WriteLineAsync("  --max-pages <number>       Limit processing to the first N pages.");
         await Console.Error.WriteLineAsync("  --summary-only             Skip article grouping and article analysis.");
-        await Console.Error.WriteLineAsync("  --raw-output               Write OCR'd text to <filename>_raw-ocr.txt in the same directory as the JSON output.");
         await Console.Error.WriteLineAsync("  --profile <name>           Set all model options to a preset profile: faster, balanced, or quality.");
         await Console.Error.WriteLineAsync("                              Individual --ollama-*-model flags override the profile when both are supplied.");
         await Console.Error.WriteLineAsync("  --ollama-endpoint <uri>    Override Ollama endpoint (e.g., http://127.0.0.1:11434).");

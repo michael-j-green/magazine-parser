@@ -40,3 +40,5 @@ coverage.*
 # Generated tool caches
 _ReSharper*/
 *.DotSettings.user
+
+output/

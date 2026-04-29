@@ -28,6 +28,9 @@ public sealed class MagazineParserPipeline
     public async Task<MagazineDocument> ParseAsync(ParseRequest request, CancellationToken cancellationToken)
     {
         var renderedPages = await _renderer.RenderAllPagesAsync(request, _progressReporter, cancellationToken);
+
+        await SavePageImagesAsync(request.OutputDirectory, renderedPages, cancellationToken);
+
         var pageInsights = new List<PageInsight>(renderedPages.Count);
 
         await _progressReporter.ReportAsync(
@@ -59,6 +62,11 @@ public sealed class MagazineParserPipeline
 
         var metadata = await InferMagazineMetadataAsync(request.PdfPath, pageInsights, cancellationToken);
 
+        await WriteOcrOutputAsync(request.OutputDirectory, request.PdfPath, pageInsights);
+
+        var coverImagePath = ResolvePageImagePath(pageInsights, PageKind.Cover);
+        var logoImagePath = ResolvePageImagePath(pageInsights, PageKind.Masthead);
+
         if (request.SummaryOnly)
         {
             await _progressReporter.ReportAsync(
@@ -66,7 +74,7 @@ public sealed class MagazineParserPipeline
                 "Skipping article grouping and article analysis because --summary-only was supplied.",
                 cancellationToken: cancellationToken);
 
-            var summaryDocument = new MagazineDocument
+            return new MagazineDocument
             {
                 SourcePdfPath = request.PdfPath,
                 Name = string.IsNullOrWhiteSpace(metadata.Name) ? Path.GetFileNameWithoutExtension(request.PdfPath) : metadata.Name,
@@ -75,12 +83,11 @@ public sealed class MagazineParserPipeline
                 Type = metadata.Type,
                 CountryOfOrigin = metadata.CountryOfOrigin,
                 OriginalPrice = metadata.OriginalPrice,
+                CoverImagePath = coverImagePath,
+                LogoImagePath = logoImagePath,
                 PageCount = renderedPages.Count,
                 Articles = []
             };
-
-            await WriteRawOutputAsync(request.RawOutputDirectory, request.PdfPath, pageInsights);
-            return summaryDocument;
         }
 
         var heuristicDrafts = BuildArticleDrafts(pageInsights);
@@ -114,7 +121,7 @@ public sealed class MagazineParserPipeline
                 cancellationToken: cancellationToken);
         }
 
-        var finalDocument = new MagazineDocument
+        return new MagazineDocument
         {
             SourcePdfPath = request.PdfPath,
             Name = string.IsNullOrWhiteSpace(metadata.Name) ? Path.GetFileNameWithoutExtension(request.PdfPath) : metadata.Name,
@@ -123,12 +130,11 @@ public sealed class MagazineParserPipeline
             Type = metadata.Type,
             CountryOfOrigin = metadata.CountryOfOrigin,
             OriginalPrice = metadata.OriginalPrice,
+            CoverImagePath = coverImagePath,
+            LogoImagePath = logoImagePath,
             PageCount = renderedPages.Count,
             Articles = analyzedArticles
         };
-
-        await WriteRawOutputAsync(request.RawOutputDirectory, request.PdfPath, pageInsights);
-        return finalDocument;
     }
 
     private async Task<PageInsight> AnalyzePageAsync(RenderedPage renderedPage, CancellationToken cancellationToken)
@@ -174,7 +180,13 @@ Return JSON matching this shape:
     ""secondaryHeadings"": [""<subheading>""],
     ""startsNewArticle"": true,
     ""continuesPreviousArticle"": false,
-    ""cleanText"": ""<copy ALL body text from the OCR transcription below, correcting obvious noise, preserving full sentences and paragraphs>""
+    ""cleanText"": ""<copy ALL body text from the OCR transcription below, correcting obvious noise, preserving full sentences and paragraphs>"",
+    ""imageAnnotations"": [
+        {{
+            ""description"": ""<brief description of the photo, illustration, screenshot or diagram>"",
+            ""caption"": ""<caption text clearly associated with this image, or null>""
+        }}
+    ]
 }}
 
 Rules:
@@ -182,6 +194,7 @@ Rules:
 - If this page is a continuation of an existing article, set continuesPreviousArticle to true.
 - cleanText MUST contain the full body text copied from the OCR transcription. Do NOT summarize it. Do NOT write a placeholder. Copy all readable text.
 - primaryHeading MUST be the actual heading text from the page. Do NOT write ""string or null"" literally; use null if there is no heading.
+- imageAnnotations should list only actual photographs, illustrations, screenshots or diagrams. Leave the array empty if there are none — do not include decorative borders, text blocks, or page furniture.
 
 Tesseract OCR transcription follows between the markers below:
 <<<OCR>>>
@@ -215,7 +228,8 @@ Tesseract OCR transcription follows between the markers below:
             SecondaryHeadings = insight.SecondaryHeadings,
             StartsNewArticle = insight.StartsNewArticle,
             ContinuesPreviousArticle = insight.ContinuesPreviousArticle,
-            CleanText = insight.CleanText?.Trim() ?? string.Empty
+            CleanText = insight.CleanText?.Trim() ?? string.Empty,
+            ImageAnnotations = insight.ImageAnnotations
         };
     }
 
@@ -376,6 +390,7 @@ Article text:
             Ratings = analysis.Ratings,
             ReviewedItemReleaseDate = analysis.ReviewedItemReleaseDate,
             ReviewedItemPrice = analysis.ReviewedItemPrice,
+            Images = BuildArticleImages(draft.Pages),
             Text = BuildArticleText(draft.Pages)
         };
     }
@@ -630,7 +645,25 @@ Article text:
         return current == 1 || current == total || current % interval == 0;
     }
 
-    private static async Task WriteRawOutputAsync(string? outputDirectory, string pdfPath, IReadOnlyList<PageInsight> pageInsights)
+    private static async Task SavePageImagesAsync(string? outputDirectory, IReadOnlyList<RenderedPage> renderedPages, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(outputDirectory) || renderedPages.Count == 0)
+        {
+            return;
+        }
+
+        var pagesDir = Path.Combine(outputDirectory, "pages");
+        Directory.CreateDirectory(pagesDir);
+
+        foreach (var page in renderedPages)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var imagePath = Path.Combine(pagesDir, $"page-{page.PageNumber:D3}.jpg");
+            await File.WriteAllBytesAsync(imagePath, page.JpegBytes, cancellationToken);
+        }
+    }
+
+    private static async Task WriteOcrOutputAsync(string? outputDirectory, string pdfPath, IReadOnlyList<PageInsight> pageInsights)
     {
         if (string.IsNullOrWhiteSpace(outputDirectory) || pageInsights.Count == 0)
         {
@@ -638,8 +671,7 @@ Article text:
         }
 
         Directory.CreateDirectory(outputDirectory);
-        var baseName = Path.GetFileNameWithoutExtension(pdfPath);
-        var ocrPath = Path.Combine(outputDirectory, $"{baseName}_raw-ocr.txt");
+        var ocrPath = Path.Combine(outputDirectory, "ocr.txt");
 
         await using var writer = new StreamWriter(ocrPath, false, Encoding.UTF8);
 
@@ -655,6 +687,26 @@ Article text:
             await writer.WriteLineAsync(page.CleanText);
             await writer.WriteLineAsync();
         }
+    }
+
+    private static string? ResolvePageImagePath(IReadOnlyList<PageInsight> pageInsights, PageKind kind)
+    {
+        var page = pageInsights.FirstOrDefault(p => p.PageKind == kind);
+        return page is null ? null : $"pages/page-{page.PageNumber:D3}.jpg";
+    }
+
+    private static IReadOnlyList<ArticleImage> BuildArticleImages(IReadOnlyList<PageInsight> pages)
+    {
+        return pages
+            .Where(page => page.ImageAnnotations.Count > 0)
+            .SelectMany(page => page.ImageAnnotations.Select(annotation => new ArticleImage
+            {
+                PageNumber = page.PageNumber,
+                FilePath = $"pages/page-{page.PageNumber:D3}.jpg",
+                Caption = annotation.Caption,
+                Description = annotation.Description
+            }))
+            .ToArray();
     }
 
     private sealed class ArticleDraft

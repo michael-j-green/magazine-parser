@@ -6,7 +6,7 @@ public sealed class MagazineDocument
 
     public required string Name { get; init; }
 
-    public DateOnly? ReleaseDate { get; init; }
+    public string? ReleaseDate { get; init; }
 
     public string? Publisher { get; init; }
 
@@ -15,6 +15,10 @@ public sealed class MagazineDocument
     public string? CountryOfOrigin { get; init; }
 
     public string? OriginalPrice { get; init; }
+
+    public string? CoverImagePath { get; init; }
+
+    public string? LogoImagePath { get; init; }
 
     public int PageCount { get; init; }
 
@@ -49,7 +53,20 @@ public sealed class ArticleDocument
 
     public string? ReviewedItemPrice { get; init; }
 
+    public required IReadOnlyList<ArticleImage> Images { get; init; }
+
     public required string Text { get; init; }
+}
+
+public sealed class ArticleImage
+{
+    public int PageNumber { get; init; }
+
+    public required string FilePath { get; init; }
+
+    public string? Caption { get; init; }
+
+    public string? Description { get; init; }
 }
 
 public sealed class ArticleRating

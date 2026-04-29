@@ -8,26 +8,18 @@ public sealed class OutputPathResolverTests
     private const string CurrentDirectory = "/workspace/current";
 
     [Fact]
-    public void Resolve_UsesCurrentDirectoryByDefault()
+    public void Resolve_UsesSubdirectoryNamedAfterPdfByDefault()
     {
         var path = OutputPathResolver.Resolve(null, "/input/Magazine.pdf", CurrentDirectory);
 
-        Assert.Equal(Path.Combine(CurrentDirectory, "Magazine.json"), path);
+        Assert.Equal(Path.Combine(CurrentDirectory, "Magazine"), path);
     }
 
     [Fact]
-    public void Resolve_UsesProvidedFilePath()
+    public void Resolve_UsesProvidedDirectoryPath()
     {
-        var path = OutputPathResolver.Resolve("./out/custom.json", "/input/Magazine.pdf", CurrentDirectory);
+        var path = OutputPathResolver.Resolve("./out/mydir", "/input/Magazine.pdf", CurrentDirectory);
 
-        Assert.Equal(Path.GetFullPath("./out/custom.json"), path);
-    }
-
-    [Fact]
-    public void Resolve_AppendsDefaultFileNameWhenPathLooksLikeDirectory()
-    {
-        var path = OutputPathResolver.Resolve("./out/", "/input/Magazine.pdf", CurrentDirectory);
-
-        Assert.Equal(Path.Combine(Path.GetFullPath("./out/"), "Magazine.json"), path);
+        Assert.Equal(Path.GetFullPath("./out/mydir"), path);
     }
 }

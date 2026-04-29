@@ -17,13 +17,22 @@ public sealed class PageInsight
     public bool ContinuesPreviousArticle { get; init; }
 
     public string CleanText { get; init; } = string.Empty;
+
+    public IReadOnlyList<PageImageAnnotation> ImageAnnotations { get; init; } = [];
+}
+
+public sealed class PageImageAnnotation
+{
+    public string? Description { get; init; }
+
+    public string? Caption { get; init; }
 }
 
 public sealed class MagazineMetadataCandidate
 {
     public string? Name { get; init; }
 
-    public DateOnly? ReleaseDate { get; init; }
+    public string? ReleaseDate { get; init; }
 
     public string? Publisher { get; init; }
 
