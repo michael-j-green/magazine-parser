@@ -12,7 +12,9 @@ public sealed class CliArgumentParserTests
             [
                 "sample.pdf",
                 "--output", "results/",
+                "--model-root", "models/",
                 "--progress",
+                "--force",
                 "--max-pages", "12",
                 "--summary-only",
                 "--ollama-model", "gemma3:12b",
@@ -29,9 +31,11 @@ public sealed class CliArgumentParserTests
 
         Assert.True(success);
         Assert.Null(errorMessage);
-        Assert.Equal("sample.pdf", options.PdfPath);
+        Assert.Equal("sample.pdf", options.InputPath);
         Assert.Equal("results/", options.OutputPath);
+        Assert.Equal("models/", options.ModelRootPath);
         Assert.True(options.EmitStructuredProgress);
+        Assert.True(options.Force);
         Assert.Equal(12, options.MaxPages);
         Assert.True(options.SummaryOnly);
         Assert.Equal("gemma3:12b", options.OllamaModel);
@@ -53,7 +57,7 @@ public sealed class CliArgumentParserTests
             out var errorMessage);
 
         Assert.False(success);
-        Assert.Equal(CliOptions.Empty.PdfPath, options.PdfPath);
+        Assert.Equal(CliOptions.Empty.InputPath, options.InputPath);
         Assert.Equal("The --max-pages option requires a positive integer.", errorMessage);
     }
 
@@ -89,7 +93,33 @@ public sealed class CliArgumentParserTests
             out var errorMessage);
 
         Assert.False(success);
-        Assert.Equal(CliOptions.Empty.PdfPath, options.PdfPath);
+        Assert.Equal(CliOptions.Empty.InputPath, options.InputPath);
         Assert.Equal("The --profile option must be one of: faster, balanced, quality, highquality, or high-quality.", errorMessage);
+    }
+
+    [Fact]
+    public void TryParse_AcceptsDirectoryInputPath()
+    {
+        var success = CliArgumentParser.TryParse(
+            ["./issues"],
+            out var options,
+            out var errorMessage);
+
+        Assert.True(success);
+        Assert.Null(errorMessage);
+        Assert.Equal("./issues", options.InputPath);
+    }
+
+    [Fact]
+    public void TryParse_ParsesForceFlagWithoutOtherOptions()
+    {
+        var success = CliArgumentParser.TryParse(
+            ["sample.pdf", "--force"],
+            out var options,
+            out var errorMessage);
+
+        Assert.True(success);
+        Assert.Null(errorMessage);
+        Assert.True(options.Force);
     }
 }

@@ -42,3 +42,4 @@ _ReSharper*/
 *.DotSettings.user
 
 output/
+.magparse-models/

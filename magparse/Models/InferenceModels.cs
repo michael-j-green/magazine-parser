@@ -18,6 +18,8 @@ public sealed class PageInsight
 
     public string CleanText { get; init; } = string.Empty;
 
+    public string RawText { get; init; } = string.Empty;
+
     public IReadOnlyList<PageImageAnnotation> ImageAnnotations { get; init; } = [];
 }
 
@@ -108,3 +110,4 @@ public enum PageKind
     Review,
     Other
 }
+

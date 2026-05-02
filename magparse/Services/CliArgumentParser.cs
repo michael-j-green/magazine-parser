@@ -34,29 +34,31 @@ internal static class CliArgumentParser
                 return false;
             }
 
-            if (state.PdfPath is not null)
+            if (state.InputPath is not null)
             {
                 options = CliOptions.Empty;
-                errorMessage = "Only one PDF path may be supplied.";
+                errorMessage = "Only one input path may be supplied.";
                 return false;
             }
 
-            state.PdfPath = argument;
+            state.InputPath = argument;
             index++;
         }
 
-        if (!state.ShowHelp && string.IsNullOrWhiteSpace(state.PdfPath))
+        if (!state.ShowHelp && string.IsNullOrWhiteSpace(state.InputPath))
         {
             options = CliOptions.Empty;
-            errorMessage = "A PDF path is required.";
+            errorMessage = "An input path is required.";
             return false;
         }
 
         options = new CliOptions
         {
-            PdfPath = state.PdfPath ?? string.Empty,
+            InputPath = state.InputPath ?? string.Empty,
             OutputPath = state.OutputPath,
+            ModelRootPath = state.ModelRootPath,
             EmitStructuredProgress = state.EmitStructuredProgress,
+            Force = state.Force,
             ShowHelp = state.ShowHelp,
             MaxPages = state.MaxPages,
             SummaryOnly = state.SummaryOnly,
@@ -70,7 +72,11 @@ internal static class CliArgumentParser
             OllamaTimeout = state.OllamaTimeout,
             TessDataPath = state.TessDataPath,
             TesseractLanguage = state.TesseractLanguage,
-            Profile = state.Profile
+            Profile = state.Profile,
+            OcrMlTypeConfidenceThreshold = state.OcrMlTypeConfidenceThreshold,
+            OcrMlLengthConfidenceThreshold = state.OcrMlLengthConfidenceThreshold,
+            OcrMlMaxPageDeltaThreshold = state.OcrMlMaxPageDeltaThreshold,
+            OcrMlTypeOverrideConfidenceThreshold = state.OcrMlTypeOverrideConfidenceThreshold
         };
         errorMessage = null;
         return true;
@@ -89,6 +95,10 @@ internal static class CliArgumentParser
                 state.EmitStructuredProgress = true;
                 index++;
                 return true;
+            case "--force":
+                state.Force = true;
+                index++;
+                return true;
             case "--summary-only":
                 state.SummaryOnly = true;
                 index++;
@@ -100,7 +110,7 @@ internal static class CliArgumentParser
 
     private static bool TryRequiresValue(string argument)
     {
-        return argument is "-o" or "--output" or "--max-pages" or "--ollama-endpoint" or "--ollama-model" or "--ollama-page-analysis-model" or "--ollama-metadata-model" or "--ollama-grouping-model" or "--ollama-article-analysis-model" or "--render-scale" or "--ollama-timeout" or "--tessdata-path" or "--tesseract-language" or "--profile";
+        return argument is "-o" or "--output" or "--model-root" or "--max-pages" or "--ollama-endpoint" or "--ollama-model" or "--ollama-page-analysis-model" or "--ollama-metadata-model" or "--ollama-grouping-model" or "--ollama-article-analysis-model" or "--render-scale" or "--ollama-timeout" or "--tessdata-path" or "--tesseract-language" or "--profile" or "--ocr-ml-type-confidence" or "--ocr-ml-length-confidence" or "--ocr-ml-max-page-delta" or "--ocr-ml-type-override-confidence";
     }
 
     private static bool TryHandleValueOption(string[] args, string argument, CliParseState state, ref int index, out string? errorMessage)
@@ -137,7 +147,64 @@ internal static class CliArgumentParser
             return CompleteValidatedOption(TryHandleTimeoutOption(argument, value, state, out errorMessage), ref index, out errorMessage, errorMessage);
         }
 
+        if (argument is "--ocr-ml-max-page-delta")
+        {
+            return CompleteValidatedOption(TryHandleOcrMlMaxPageDeltaOption(argument, value, state, out errorMessage), ref index, out errorMessage, errorMessage);
+        }
+
+        if (argument is "--ocr-ml-type-confidence" or "--ocr-ml-length-confidence" or "--ocr-ml-type-override-confidence")
+        {
+            return CompleteValidatedOption(TryHandleOcrMlConfidenceOption(argument, value, state, out errorMessage), ref index, out errorMessage, errorMessage);
+        }
+
         return CompleteValidatedOption(TryHandleMaxPagesOption(argument, value, state, out errorMessage), ref index, out errorMessage, errorMessage);
+    }
+
+    private static bool TryHandleOcrMlConfidenceOption(string argument, string value, CliParseState state, out string? errorMessage)
+    {
+        if (!double.TryParse(value, out var parsed) || parsed <= 0 || parsed > 1)
+        {
+            errorMessage = $"The {argument} option requires a decimal value in the range (0, 1].";
+            return false;
+        }
+
+        switch (argument)
+        {
+            case "--ocr-ml-type-confidence":
+                state.OcrMlTypeConfidenceThreshold = parsed;
+                break;
+            case "--ocr-ml-length-confidence":
+                state.OcrMlLengthConfidenceThreshold = parsed;
+                break;
+            case "--ocr-ml-type-override-confidence":
+                state.OcrMlTypeOverrideConfidenceThreshold = parsed;
+                break;
+            default:
+                errorMessage = $"Unknown option: {argument}";
+                return false;
+        }
+
+        errorMessage = null;
+        return true;
+    }
+
+    private static bool TryHandleOcrMlMaxPageDeltaOption(string argument, string value, CliParseState state, out string? errorMessage)
+    {
+        if (argument is not "--ocr-ml-max-page-delta")
+        {
+            errorMessage = $"Unknown option: {argument}";
+            return false;
+        }
+
+        if (!int.TryParse(value, out var parsed) || parsed < 0)
+        {
+            errorMessage = "The --ocr-ml-max-page-delta option requires a non-negative integer.";
+            return false;
+        }
+
+        state.OcrMlMaxPageDeltaThreshold = parsed;
+        errorMessage = null;
+        return true;
     }
 
     private static bool CompleteValidatedOption(bool success, ref int index, out string? errorMessage, string? validationError)
@@ -160,6 +227,9 @@ internal static class CliArgumentParser
             case "-o":
             case "--output":
                 state.OutputPath = value;
+                return true;
+            case "--model-root":
+                state.ModelRootPath = value;
                 return true;
             case "--ollama-model":
                 state.OllamaModel = value;
@@ -294,13 +364,17 @@ internal static class CliArgumentParser
 
 internal sealed class CliOptions
 {
-    public static CliOptions Empty => new() { PdfPath = string.Empty, ShowHelp = false };
+    public static CliOptions Empty => new() { InputPath = string.Empty, ShowHelp = false };
 
-    public required string PdfPath { get; init; }
+    public required string InputPath { get; init; }
 
     public string? OutputPath { get; init; }
 
+    public string? ModelRootPath { get; init; }
+
     public bool EmitStructuredProgress { get; init; }
+
+    public bool Force { get; init; }
 
     public bool ShowHelp { get; init; }
 
@@ -329,6 +403,14 @@ internal sealed class CliOptions
     public string? TesseractLanguage { get; init; }
 
     public string? Profile { get; init; }
+
+    public double? OcrMlTypeConfidenceThreshold { get; init; }
+
+    public double? OcrMlLengthConfidenceThreshold { get; init; }
+
+    public int? OcrMlMaxPageDeltaThreshold { get; init; }
+
+    public double? OcrMlTypeOverrideConfidenceThreshold { get; init; }
 }
 
 internal static class OutputPathResolver
@@ -359,11 +441,15 @@ public sealed class ParseRequest
 
 internal sealed class CliParseState
 {
-    public string? PdfPath { get; set; }
+    public string? InputPath { get; set; }
 
     public string? OutputPath { get; set; }
 
+    public string? ModelRootPath { get; set; }
+
     public bool EmitStructuredProgress { get; set; }
+
+    public bool Force { get; set; }
 
     public string? OllamaEndpoint { get; set; }
 
@@ -392,4 +478,12 @@ internal sealed class CliParseState
     public string? TesseractLanguage { get; set; }
 
     public string? Profile { get; set; }
+
+    public double? OcrMlTypeConfidenceThreshold { get; set; }
+
+    public double? OcrMlLengthConfidenceThreshold { get; set; }
+
+    public int? OcrMlMaxPageDeltaThreshold { get; set; }
+
+    public double? OcrMlTypeOverrideConfidenceThreshold { get; set; }
 }

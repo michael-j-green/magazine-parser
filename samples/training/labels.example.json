@@ -1,0 +1,35 @@
+{
+    "issueId": "CommodoreFormatHiiPdf000",
+    "articles": [
+        {
+            "id": "a-001",
+            "type": "editorial",
+            "pages": [
+                3
+            ]
+        },
+        {
+            "id": "a-002",
+            "type": "feature",
+            "pages": [
+                4
+            ]
+        },
+        {
+            "id": "a-003",
+            "type": "tips",
+            "pages": [
+                5
+            ]
+        },
+        {
+            "id": "a-004",
+            "type": "feature",
+            "pages": [
+                7,
+                8,
+                9
+            ]
+        }
+    ]
+}

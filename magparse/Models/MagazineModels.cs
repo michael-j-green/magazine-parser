@@ -56,6 +56,8 @@ public sealed class ArticleDocument
     public required IReadOnlyList<ArticleImage> Images { get; init; }
 
     public required string Text { get; init; }
+
+    public required string RawText { get; init; }
 }
 
 public sealed class ArticleImage
@@ -100,12 +102,14 @@ public enum MagazineType
 public enum ArticleType
 {
     Unknown,
+    Cover,
     Editorial,
     News,
     Feature,
     Interview,
     Review,
     Preview,
+    Tips,
     Guide,
     Letters,
     Advertisement,
@@ -123,3 +127,4 @@ public enum SentimentLabel
     VeryPositive,
     Neutral
 }
+

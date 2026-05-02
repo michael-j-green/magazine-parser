@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text;
 using System.Collections.Concurrent;
+using System.Globalization;
 using OllamaSharp;
 using OllamaSharp.Models;
 
@@ -16,7 +17,13 @@ public sealed class OllamaInferenceClient
     {
         PropertyNameCaseInsensitive = true,
         NumberHandling = JsonNumberHandling.AllowReadingFromString,
-        Converters = { new LenientEnumJsonConverterFactory(), new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) }
+        Converters =
+        {
+            new LenientDecimalJsonConverter(),
+            new LenientNullableDecimalJsonConverter(),
+            new LenientEnumJsonConverterFactory(),
+            new JsonStringEnumConverter(JsonNamingPolicy.CamelCase)
+        }
     };
 
     private readonly OllamaApiClient _client;
@@ -40,12 +47,15 @@ public sealed class OllamaInferenceClient
         await EnsureModelAvailableAsync(model, cancellationToken);
 
         JsonException? lastJsonException = null;
+        string? lastInvalidPayload = null;
 
         for (var attempt = 1; attempt <= MaxGenerateAttempts; attempt++)
         {
-            var effectivePrompt = attempt == 1
-                ? prompt
-                : $"{prompt}\n\nIMPORTANT: Your previous response was invalid or incomplete JSON. Return exactly one complete JSON value matching the requested shape. Do not include commentary, markdown fences, or truncated output.";
+            var effectivePrompt = BuildJsonRetryPrompt(
+                prompt,
+                attempt,
+                lastJsonException,
+                lastInvalidPayload);
 
             var request = new GenerateRequest
             {
@@ -73,17 +83,61 @@ public sealed class OllamaInferenceClient
             }
             catch (JsonException exception) when (attempt < MaxGenerateAttempts)
             {
+                lastJsonException = exception;
+                lastInvalidPayload = payload;
+
                 var repairedPayload = await TryRepairJsonPayloadAsync(payload, model, cancellationToken);
                 if (TryDeserialize(repairedPayload, out T? repairedResult))
                 {
                     return repairedResult!;
                 }
-
-                lastJsonException = exception;
             }
         }
 
         throw new InvalidOperationException($"Ollama returned invalid JSON after {MaxGenerateAttempts} attempts. {lastJsonException?.Message}");
+    }
+
+    private static string BuildJsonRetryPrompt(string basePrompt, int attempt, JsonException? lastJsonException, string? lastInvalidPayload)
+    {
+        if (attempt == 1)
+        {
+            return basePrompt;
+        }
+
+        var errorDetails = lastJsonException is null
+            ? "Unknown JSON parse failure."
+            : $"{lastJsonException.Message} (Path: {lastJsonException.Path ?? "<none>"}, Line: {lastJsonException.LineNumber?.ToString() ?? "<unknown>"}, Byte: {lastJsonException.BytePositionInLine?.ToString() ?? "<unknown>"})";
+
+        var priorPayload = string.IsNullOrWhiteSpace(lastInvalidPayload)
+            ? "<empty>"
+            : TrimForPrompt(lastInvalidPayload, 3000);
+
+        return $"""
+{basePrompt}
+
+IMPORTANT: Your previous response was malformed JSON and failed strict parsing.
+Validation failure:
+{errorDetails}
+
+Previous invalid JSON response:
+<<<PREVIOUS_INVALID_JSON>>>
+{priorPayload}
+<<<END_PREVIOUS_INVALID_JSON>>>
+
+Return exactly one valid JSON value that matches the requested schema.
+Do not include markdown fences, comments, explanation text, or extra trailing content.
+Ensure all braces/brackets are properly closed.
+""";
+    }
+
+    private static string TrimForPrompt(string value, int maxLength)
+    {
+        if (string.IsNullOrEmpty(value) || value.Length <= maxLength)
+        {
+            return value;
+        }
+
+        return value[..maxLength] + "\n\n[TRUNCATED]";
     }
 
     public async Task<string> GenerateResponseAsync(string systemPrompt, string prompt, IReadOnlyList<byte[]>? images, string model, CancellationToken cancellationToken)
@@ -343,5 +397,114 @@ public sealed class OllamaInferenceClient
             var chars = value.Where(char.IsLetterOrDigit).ToArray();
             return new string(chars);
         }
+    }
+
+    private sealed class LenientDecimalJsonConverter : JsonConverter<decimal>
+    {
+        public override decimal Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            if (reader.TokenType is JsonTokenType.Number && reader.TryGetDecimal(out var decimalValue))
+            {
+                return decimalValue;
+            }
+
+            if (reader.TokenType is JsonTokenType.String)
+            {
+                var raw = reader.GetString();
+                if (TryParseLenientDecimal(raw, out var parsed))
+                {
+                    return parsed;
+                }
+            }
+
+            return 0m;
+        }
+
+        public override void Write(Utf8JsonWriter writer, decimal value, JsonSerializerOptions options)
+        {
+            writer.WriteNumberValue(value);
+        }
+    }
+
+    private sealed class LenientNullableDecimalJsonConverter : JsonConverter<decimal?>
+    {
+        public override decimal? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            if (reader.TokenType is JsonTokenType.Null)
+            {
+                return null;
+            }
+
+            if (reader.TokenType is JsonTokenType.Number && reader.TryGetDecimal(out var decimalValue))
+            {
+                return decimalValue;
+            }
+
+            if (reader.TokenType is JsonTokenType.String)
+            {
+                var raw = reader.GetString();
+                if (TryParseLenientDecimal(raw, out var parsed))
+                {
+                    return parsed;
+                }
+            }
+
+            return null;
+        }
+
+        public override void Write(Utf8JsonWriter writer, decimal? value, JsonSerializerOptions options)
+        {
+            if (value.HasValue)
+            {
+                writer.WriteNumberValue(value.Value);
+                return;
+            }
+
+            writer.WriteNullValue();
+        }
+    }
+
+    private static bool TryParseLenientDecimal(string? raw, out decimal value)
+    {
+        value = 0m;
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return false;
+        }
+
+        var trimmed = raw.Trim();
+        if (decimal.TryParse(trimmed, NumberStyles.Float, CultureInfo.InvariantCulture, out value))
+        {
+            return true;
+        }
+
+        // Extract first numeric token from text like "90%", "9/10", "score: 8.5", etc.
+        var tokenChars = trimmed
+            .Where(ch => char.IsDigit(ch) || ch is '.' or '-' or '+')
+            .ToArray();
+
+        if (tokenChars.Length == 0)
+        {
+            return false;
+        }
+
+        var token = new string(tokenChars);
+        if (decimal.TryParse(token, NumberStyles.Float, CultureInfo.InvariantCulture, out value))
+        {
+            return true;
+        }
+
+        // Handle simple fraction notation such as "9/10" by using the numerator.
+        var slashIndex = trimmed.IndexOf('/');
+        if (slashIndex > 0)
+        {
+            var numerator = trimmed[..slashIndex].Trim();
+            if (decimal.TryParse(numerator, NumberStyles.Float, CultureInfo.InvariantCulture, out value))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

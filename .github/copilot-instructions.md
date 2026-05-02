@@ -4,6 +4,8 @@
 
 `magparse` is a .NET 10 CLI tool that parses scanned magazine PDFs into structured JSON using PDF rendering (Docnet.Core), Tesseract OCR, and Ollama local model inference. The pipeline is fully sequential: render → save page images → OCR + page analysis → metadata inference → article grouping → article analysis → write output.
 
+CLI input supports both a single PDF path and a directory path containing multiple PDF issues.
+
 ## Solution Layout
 
 ```
@@ -52,6 +54,17 @@ Every parse run writes into the output directory (`--output`; default: `./<pdf-n
 
 Image paths in JSON (coverImagePath, logoImagePath, images[].filePath) are **relative** to the output directory.
 
+Each article now carries both cleaned and raw OCR text (`text` and `rawText`).
+
+## Input Modes and ML.NET Continuity Models
+
+- **Single PDF input**: parse one issue. The runtime attempts to load an existing ML.NET continuity model for the issue key (derived from file name) to assist continuation/merge decisions.
+- **Directory input**: parse all `*.pdf` files in the directory as issues of one title. A shared ML.NET continuity model is reused and updated during batch processing.
+- **Existing outputs**: when the expected issue JSON already exists in the output directory, the issue is skipped automatically.
+- **Force mode**: `--force` clears the output directory and reprocesses all targeted issues from scratch.
+- **In-progress staging**: each issue is written under an `inprogress/` directory first and moved to its final output directory only after the issue completes successfully. Stale in-progress issue folders are cleared before retrying that issue.
+- Model artefacts are stored under `./.magparse-models/<title-or-directory-key>/`.
+
 ## Pipeline Stages
 
 | Stage | Method | Model setting |
@@ -83,7 +96,7 @@ Profiles set all four model options at once. Defined in `MagparseSettings.Resolv
 - On timeout: retries up to `MaxTimeoutAttempts` (3) with exponential backoff on the timeout value
 - All JSON is deserialized with `PropertyNameCaseInsensitive = true`, `AllowReadingFromString` for numbers, and a `LenientEnumJsonConverterFactory` that returns the default enum value for unrecognised strings
 
-## Article Title Recovery
+## Article Continuity and Title Recovery
 
 Two mechanisms handle missing/vertical titles:
 
@@ -117,3 +130,5 @@ All CLI options have an environment variable fallback, resolved in `MagparseSett
 | `MAGPARSE_OLLAMA_TIMEOUT` | `900` (seconds) |
 | `MAGPARSE_TESSDATA_PATH` | `./tessdata` |
 | `MAGPARSE_TESSERACT_LANGUAGE` | `eng` |
+
+

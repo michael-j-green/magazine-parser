@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Text.Json;
 
 namespace magparse.Services;
@@ -23,6 +25,9 @@ public sealed class ConsoleProgressReporter : IProgressReporter
     private readonly bool _emitStructuredProgress;
     private readonly SemaphoreSlim _writeGate = new(1, 1);
 
+    // Tracks when each stage's counter first reached current=1, keyed by stage name.
+    private readonly ConcurrentDictionary<string, (Stopwatch Stopwatch, int LastCurrent)> _stageTimings = new();
+
     public ConsoleProgressReporter(bool emitStructuredProgress)
     {
         _emitStructuredProgress = emitStructuredProgress;
@@ -42,6 +47,25 @@ public sealed class ConsoleProgressReporter : IProgressReporter
             normalizedPercent = (double)current.Value / total.Value;
         }
 
+        // Update stage timing tracking.
+        string? avgSuffix = null;
+        if (current.HasValue && current.Value > 0)
+        {
+            var timing = _stageTimings.AddOrUpdate(
+                stage,
+                _ => (Stopwatch.StartNew(), current.Value),
+                (_, existing) => (existing.Stopwatch, current.Value));
+
+            var elapsed = timing.Stopwatch.Elapsed;
+            if (elapsed.TotalSeconds > 0 && timing.LastCurrent > 0)
+            {
+                var avgSeconds = elapsed.TotalSeconds / timing.LastCurrent;
+                avgSuffix = avgSeconds >= 60
+                    ? $" — avg {avgSeconds / 60:F1}m/item, elapsed {FormatElapsed(elapsed)}"
+                    : $" — avg {avgSeconds:F1}s/item, elapsed {FormatElapsed(elapsed)}";
+            }
+        }
+
         var update = new ProgressUpdate
         {
             Timestamp = DateTimeOffset.UtcNow,
@@ -55,10 +79,8 @@ public sealed class ConsoleProgressReporter : IProgressReporter
         await _writeGate.WaitAsync(cancellationToken);
         try
         {
-            // Human-readable status always goes to stderr.
-            await Console.Error.WriteLineAsync(FormatHumanMessage(update));
+            await Console.Error.WriteLineAsync(FormatHumanMessage(update, avgSuffix));
 
-            // Structured progress is opt-in so orchestration can parse stdout safely.
             if (_emitStructuredProgress)
             {
                 await Console.Out.WriteLineAsync(JsonSerializer.Serialize(update, JsonOptions));
@@ -70,7 +92,7 @@ public sealed class ConsoleProgressReporter : IProgressReporter
         }
     }
 
-    private static string FormatHumanMessage(ProgressUpdate update)
+    private static string FormatHumanMessage(ProgressUpdate update, string? avgSuffix)
     {
         var progressSuffix = string.Empty;
         if (update.Current.HasValue && update.Total.HasValue)
@@ -82,7 +104,16 @@ public sealed class ConsoleProgressReporter : IProgressReporter
             ? $" ({update.Percent.Value:P0})"
             : string.Empty;
 
-        return $"[{update.Stage}]{progressSuffix}{percentSuffix} {update.Message}";
+        return $"[{update.Stage}]{progressSuffix}{percentSuffix} {update.Message}{avgSuffix}";
+    }
+
+    private static string FormatElapsed(TimeSpan elapsed)
+    {
+        return elapsed.TotalHours >= 1
+            ? $"{(int)elapsed.TotalHours}h {elapsed.Minutes:D2}m {elapsed.Seconds:D2}s"
+            : elapsed.TotalMinutes >= 1
+            ? $"{elapsed.Minutes}m {elapsed.Seconds:D2}s"
+            : $"{elapsed.Seconds}s";
     }
 }
 

@@ -24,6 +24,14 @@ public sealed class MagparseSettings
 
     public required string TesseractLanguage { get; init; }
 
+    public required double OcrMlTypeConfidenceThreshold { get; init; }
+
+    public required double OcrMlLengthConfidenceThreshold { get; init; }
+
+    public required int OcrMlMaxPageDeltaThreshold { get; init; }
+
+    public required double OcrMlTypeOverrideConfidenceThreshold { get; init; }
+
     internal static MagparseSettings FromEnvironment(CliOptions options)
     {
         var endpoint = options.OllamaEndpoint ?? Environment.GetEnvironmentVariable("MAGPARSE_OLLAMA_ENDPOINT");
@@ -40,6 +48,10 @@ public sealed class MagparseSettings
         var timeout = options.OllamaTimeout.HasValue ? options.OllamaTimeout.Value.ToString() : Environment.GetEnvironmentVariable("MAGPARSE_OLLAMA_TIMEOUT");
         var tessDataPath = options.TessDataPath ?? Environment.GetEnvironmentVariable("MAGPARSE_TESSDATA_PATH");
         var tesseractLanguage = options.TesseractLanguage ?? Environment.GetEnvironmentVariable("MAGPARSE_TESSERACT_LANGUAGE");
+        var ocrMlTypeConfidence = options.OcrMlTypeConfidenceThreshold?.ToString() ?? Environment.GetEnvironmentVariable("MAGPARSE_OCR_ML_TYPE_CONFIDENCE");
+        var ocrMlLengthConfidence = options.OcrMlLengthConfidenceThreshold?.ToString() ?? Environment.GetEnvironmentVariable("MAGPARSE_OCR_ML_LENGTH_CONFIDENCE");
+        var ocrMlMaxPageDelta = options.OcrMlMaxPageDeltaThreshold?.ToString() ?? Environment.GetEnvironmentVariable("MAGPARSE_OCR_ML_MAX_PAGE_DELTA");
+        var ocrMlTypeOverrideConfidence = options.OcrMlTypeOverrideConfidenceThreshold?.ToString() ?? Environment.GetEnvironmentVariable("MAGPARSE_OCR_ML_TYPE_OVERRIDE_CONFIDENCE");
 
         return new MagparseSettings
         {
@@ -52,7 +64,11 @@ public sealed class MagparseSettings
             RenderScale = double.TryParse(renderScale, out var parsedScale) && parsedScale > 0 ? parsedScale : 2.5,
             OllamaTimeoutSeconds = int.TryParse(timeout, out var parsedTimeout) && parsedTimeout > 0 ? parsedTimeout : 900,
             TessDataPath = string.IsNullOrWhiteSpace(tessDataPath) ? "./tessdata" : tessDataPath.Trim(),
-            TesseractLanguage = string.IsNullOrWhiteSpace(tesseractLanguage) ? "eng" : tesseractLanguage.Trim()
+            TesseractLanguage = string.IsNullOrWhiteSpace(tesseractLanguage) ? "eng" : tesseractLanguage.Trim(),
+            OcrMlTypeConfidenceThreshold = double.TryParse(ocrMlTypeConfidence, out var parsedTypeConfidence) && parsedTypeConfidence > 0 && parsedTypeConfidence <= 1 ? parsedTypeConfidence : 0.88,
+            OcrMlLengthConfidenceThreshold = double.TryParse(ocrMlLengthConfidence, out var parsedLengthConfidence) && parsedLengthConfidence > 0 && parsedLengthConfidence <= 1 ? parsedLengthConfidence : 0.75,
+            OcrMlMaxPageDeltaThreshold = int.TryParse(ocrMlMaxPageDelta, out var parsedMaxDelta) && parsedMaxDelta >= 0 ? parsedMaxDelta : 1,
+            OcrMlTypeOverrideConfidenceThreshold = double.TryParse(ocrMlTypeOverrideConfidence, out var parsedOverrideConfidence) && parsedOverrideConfidence > 0 && parsedOverrideConfidence <= 1 ? parsedOverrideConfidence : 0.92
         };
     }
 
